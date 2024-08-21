@@ -43,6 +43,7 @@ func main() {
     }
 
     // MARK: - APNs client setup
+    log.Printf("[1/5] Creating APNs client")
 
     authKey, err := token.AuthKeyFromFile(*apnsKey)
     if err != nil {
@@ -57,6 +58,7 @@ func main() {
     client := apns2.NewTokenClient(token)
 
     // MARK: - Tailscale setup
+    log.Printf("[2/5] Connecting to Tailscale")
 
     s := new(tsnet.Server)
     s.Hostname = *hostname
@@ -74,6 +76,7 @@ func main() {
     }
 
     // MARK: - device data setup
+    log.Printf("[3/5] Loading registered devices")
 
     type DeviceData struct {
         NodeNameAtRegistration string
@@ -99,6 +102,14 @@ func main() {
         devices = map[tailcfg.UserID]UserData{}
     }
 
+    for _, userData := range devices {
+        log.Printf("Loaded user %s", userData.UsernameAtRegistration)
+
+        for _, deviceData := range userData.Devices {
+            log.Printf("...loaded device %s for user %s", deviceData.NodeNameAtRegistration, userData.UsernameAtRegistration)
+        }
+    }
+
     interruptChannel := make(chan os.Signal, 1)
     signal.Notify(interruptChannel, os.Interrupt, syscall.SIGTERM)
     go func() {
@@ -118,6 +129,7 @@ func main() {
     }()
 
     // MARK: - route setup
+    log.Printf("[4/5] Creating routes")
 
     mux := http.NewServeMux()
 
@@ -206,6 +218,7 @@ func main() {
     // https://stackoverflow.com/questions/34549453/how-to-sync-push-notifications-across-multiple-ios-devices
 
     // MARK: - run
+    log.Printf("[5/5] Launching server")
 
     log.Fatal(http.Serve(listener, mux))
 }
