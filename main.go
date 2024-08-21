@@ -3,6 +3,7 @@ package main
 import (
     "encoding/gob"
     "flag"
+    "fmt"
     "log"
     "net/http"
     "os"
@@ -23,7 +24,7 @@ var (
     apnsKey  = flag.String("apns-key", os.Getenv("CLIFF_APNS_KEY_PATH"), "Path to the APNs token signing key")
     keyID    = flag.String("key-id", os.Getenv("CLIFF_APNS_KEY_ID"), "ID of the APNs token signing key")
     teamID   = flag.String("team-id", os.Getenv("CLIFF_APNS_TEAM_ID"), "ID of the team signing the app")
-    bundleID   = flag.String("bundle-id", os.Getenv("CLIFF_APP_BUNDLE_ID"), "Bundle ID of the app receiving notifications")
+    bundleID = flag.String("bundle-id", os.Getenv("CLIFF_APP_BUNDLE_ID"), "Bundle ID of the app receiving notifications")
 )
 
 func main() {
@@ -131,23 +132,13 @@ func main() {
     // MARK: - route setup
     log.Printf("[4/5] Creating routes")
 
-    mux := http.NewServeMux()
-
-    mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *http.Request) {
-        // Send notification to APNs
-        who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
-        if err != nil {
-            http.Error(w, err.Error(), 500)
-            return
-        }
-        log.Printf("Request to send notification from user %s", who.UserProfile.LoginName)
-
+    sendNotification := func(w http.ResponseWriter, uid tailcfg.UserID, p *payload.Payload) {
         var responses []apns2.Response
-        for _, deviceData := range devices[who.UserProfile.ID].Devices {
+        for _, deviceData := range devices[uid].Devices {
             notification := &apns2.Notification{
                 DeviceToken: deviceData.ApnsToken,
                 Topic:       *bundleID,
-                Payload:     payload.NewPayload().AlertTitle("Title").AlertSubtitle("Subtitle").AlertBody("Body").Sound("default").InterruptionLevel(payload.InterruptionLevelTimeSensitive),
+                Payload:     p.Sound("default").InterruptionLevel(payload.InterruptionLevelTimeSensitive),
             }
 
             res, err := client.Push(notification)
@@ -163,6 +154,47 @@ func main() {
                 log.Printf("Unable to send notification because %s", res.Reason)
             }
         }
+    }
+
+    mux := http.NewServeMux()
+
+    mux.HandleFunc("GET /send", func(w http.ResponseWriter, r *http.Request) {
+        // Send notification
+        who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
+        if err != nil {
+            http.Error(w, err.Error(), 500)
+            return
+        }
+        log.Printf("Request to send notification from user %s", who.UserProfile.LoginName)
+
+        payload := payload.NewPayload().AlertBody(fmt.Sprintf("Notification triggered by %s", who.Node.DisplayName(false)))
+        sendNotification(w, who.UserProfile.ID, payload)
+    })
+
+    mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *http.Request) {
+        // Send notification to APNs
+        who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
+        if err != nil {
+            http.Error(w, err.Error(), 500)
+            return
+        }
+        log.Printf("Request to send notification from user %s", who.UserProfile.LoginName)
+
+        r.ParseForm()
+
+        payload := payload.NewPayload()
+
+        if len(r.Form["title"]) > 0 {
+            payload.AlertTitle(r.Form["title"][0])
+        }
+        if len(r.Form["subtitle"]) > 0 {
+            payload.AlertSubtitle(r.Form["subtitle"][0])
+        }
+        if len(r.Form["body"]) > 0 {
+            payload.AlertBody(r.Form["body"][0])
+        }
+
+        sendNotification(w, who.UserProfile.ID, payload)
     })
 
     mux.HandleFunc("/send", func(w http.ResponseWriter, r *http.Request) {
