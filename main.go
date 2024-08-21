@@ -23,6 +23,7 @@ var (
     apnsKey  = flag.String("apns-key", os.Getenv("CLIFF_APNS_KEY_PATH"), "Path to the APNs token signing key")
     keyID    = flag.String("key-id", os.Getenv("CLIFF_APNS_KEY_ID"), "ID of the APNs token signing key")
     teamID   = flag.String("team-id", os.Getenv("CLIFF_APNS_TEAM_ID"), "ID of the team signing the app")
+    bundleID   = flag.String("bundle-id", os.Getenv("CLIFF_APP_BUNDLE_ID"), "Bundle ID of the app receiving notifications")
 )
 
 func main() {
@@ -36,6 +37,9 @@ func main() {
     }
     if *teamID == "" {
         log.Fatal("Must provide the ID of the team signing the app (can use the CLIFF_APNS_TEAM_ID env var)")
+    }
+    if *bundleID == "" {
+        log.Fatal("Must provide the bundle ID of the app recieving notifications (can use the CLIFF_APP_BUNDLE_ID env var)")
     }
 
     // MARK: - APNs client setup
@@ -130,7 +134,7 @@ func main() {
         for _, deviceData := range devices[who.UserProfile.ID].Devices {
             notification := &apns2.Notification{
                 DeviceToken: deviceData.ApnsToken,
-                Topic:       "com.gauck.sam.Cliff",
+                Topic:       *bundleID,
                 Payload:     payload.NewPayload().AlertTitle("Title").AlertSubtitle("Subtitle").AlertBody("Body").Sound("default").InterruptionLevel(payload.InterruptionLevelTimeSensitive),
             }
 
