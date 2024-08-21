@@ -165,7 +165,7 @@ func main() {
             http.Error(w, err.Error(), 500)
             return
         }
-        log.Printf("Request to send notification from user %s", who.UserProfile.LoginName)
+        log.Printf("Request to send simple notification from user %s", who.UserProfile.LoginName)
 
         payload := payload.NewPayload().AlertBody(fmt.Sprintf("Notification triggered by %s", who.Node.DisplayName(false)))
         sendNotification(w, who.UserProfile.ID, payload)
@@ -178,20 +178,36 @@ func main() {
             http.Error(w, err.Error(), 500)
             return
         }
-        log.Printf("Request to send notification from user %s", who.UserProfile.LoginName)
+        log.Printf("Request to send notification with data from user %s", who.UserProfile.LoginName)
 
-        r.ParseForm()
+        err = r.ParseForm()
+        if err != nil {
+            http.Error(w, err.Error(), 400)
+            return
+        }
 
         payload := payload.NewPayload()
 
+        hasValue := false
+
         if len(r.Form["title"]) > 0 {
             payload.AlertTitle(r.Form["title"][0])
+            hasValue = true
         }
         if len(r.Form["subtitle"]) > 0 {
             payload.AlertSubtitle(r.Form["subtitle"][0])
+            hasValue = true
         }
         if len(r.Form["body"]) > 0 {
             payload.AlertBody(r.Form["body"][0])
+            hasValue = true
+        }
+
+        if !hasValue {
+            // This notification would have no content
+            log.Printf("Notification has none of: title, subtitle, body")
+            http.Error(w, "Notification must have content", 400)
+            return
         }
 
         sendNotification(w, who.UserProfile.ID, payload)
