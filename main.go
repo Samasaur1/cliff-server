@@ -143,7 +143,6 @@ func main() {
 	log.Printf("[4/5] Creating routes")
 
 	sendNotification := func(w http.ResponseWriter, uid tailcfg.UserID, p *payload.Payload) {
-		var responses []apns2.Response
 		for _, deviceData := range devices[uid].Devices {
 			notification := &apns2.Notification{
 				DeviceToken: deviceData.ApnsToken,
@@ -151,17 +150,16 @@ func main() {
 				Payload:     p.Sound("default").InterruptionLevel(payload.InterruptionLevelTimeSensitive),
 			}
 
+			log.Printf("..sending notification to %s", deviceData.NodeNameAtRegistration)
 			res, err := client.Push(notification)
 			if err != nil {
 				http.Error(w, err.Error(), 500)
+				log.Printf("....unrecoverable error: %s", err.Error())
 				return
 			}
-			responses = append(responses, *res)
-			log.Printf("..sending notification to %s", deviceData.NodeNameAtRegistration)
-		}
-		for _, res := range responses {
 			if !res.Sent() {
 				log.Printf("....unable to send notification because %s", res.Reason)
+				// TODO: return error code if all notifications fail?
 			}
 		}
 	}
