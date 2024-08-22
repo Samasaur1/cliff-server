@@ -107,7 +107,7 @@ func main() {
 		log.Printf("Loaded user %s", userData.UsernameAtRegistration)
 
 		for _, deviceData := range userData.Devices {
-			log.Printf("...loaded device %s for user %s", deviceData.NodeNameAtRegistration, userData.UsernameAtRegistration)
+			log.Printf("..loaded device %s for user %s", deviceData.NodeNameAtRegistration, userData.UsernameAtRegistration)
 		}
 	}
 
@@ -147,11 +147,11 @@ func main() {
 				return
 			}
 			responses = append(responses, *res)
-			log.Printf("Sending notification to %s", deviceData.NodeNameAtRegistration)
+			log.Printf("..sending notification to %s", deviceData.NodeNameAtRegistration)
 		}
 		for _, res := range responses {
 			if !res.Sent() {
-				log.Printf("Unable to send notification because %s", res.Reason)
+				log.Printf("....unable to send notification because %s", res.Reason)
 			}
 		}
 	}
@@ -205,7 +205,7 @@ func main() {
 
 		if !hasValue {
 			// This notification would have no content
-			log.Printf("Notification has none of: title, subtitle, body")
+			log.Printf("..notification has none of: title, subtitle, body")
 			http.Error(w, "Notification must have content", 400)
 			return
 		}
