@@ -31,6 +31,19 @@ in
       '';
     };
 
+    development = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      example = true;
+      description = ''
+        Whether to hit the APNs development endpoint instead of the production endpoint.
+
+        Builds installed directly via Xcode send APNs tokens that must hit the development
+        endpoint, while builds installed via TestFlight or the App Store send APNs tokens
+        that must hit the production endpoint.
+      '';
+    };
+
     environmentFile = lib.mkOption {
       type = lib.types.path;
       default = "/etc/cliff.env";
@@ -90,7 +103,7 @@ in
         Restart = "always";
         WorkingDirectory = "/var/lib/cliff";
         StateDirectory = "cliff";
-        ExecStart = "${lib.getExe cfg.package} --hostname ${cfg.hostname} ${lib.optionalString (cfg.apnsKeyPath != null) "--apns-key ${cfg.apnsKeyPath}"}";
+        ExecStart = "${lib.getExe cfg.package} --hostname ${cfg.hostname} ${lib.optionalString (cfg.apnsKeyPath != null) "--apns-key ${cfg.apnsKeyPath}"} ${lib.optionalString cfg.development "--development"}";
         EnvironmentFile = [ cfg.environmentFile ];
       };
     };
