@@ -25,21 +25,26 @@ var (
 	keyID    = flag.String("key-id", os.Getenv("CLIFF_APNS_KEY_ID"), "ID of the APNs token signing key")
 	teamID   = flag.String("team-id", os.Getenv("CLIFF_APNS_TEAM_ID"), "ID of the team signing the app")
 	bundleID = flag.String("bundle-id", os.Getenv("CLIFF_APP_BUNDLE_ID"), "Bundle ID of the app receiving notifications")
+	development = flag.Bool("development", false, "Whether to send APNs notifications to the dev environment")
 )
 
 func main() {
 	flag.Parse()
 
 	if *apnsKey == "" {
+		flag.PrintDefaults()
 		log.Fatal("Must provide a path to the APNs key file (can use the CLIFF_APNS_KEY_PATH env var)")
 	}
 	if *keyID == "" {
+		flag.PrintDefaults()
 		log.Fatal("Must provide the ID of the APNs key (can use the CLIFF_APNS_KEY_ID env var)")
 	}
 	if *teamID == "" {
+		flag.PrintDefaults()
 		log.Fatal("Must provide the ID of the team signing the app (can use the CLIFF_APNS_TEAM_ID env var)")
 	}
 	if *bundleID == "" {
+		flag.PrintDefaults()
 		log.Fatal("Must provide the bundle ID of the app recieving notifications (can use the CLIFF_APP_BUNDLE_ID env var)")
 	}
 
@@ -57,6 +62,11 @@ func main() {
 		TeamID:  *teamID,
 	}
 	client := apns2.NewTokenClient(token)
+	if *development {
+		client.Development() // default for now, but setting in case the default changes
+	} else {
+		client.Production()
+	}
 
 	// MARK: - Tailscale setup
 	log.Printf("[2/5] Connecting to Tailscale")
