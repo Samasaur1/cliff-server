@@ -30,7 +30,7 @@
         };
       });
 
-      nixosModules.default = import ./module.nix;
+      nixosModules.default = (import ./module.nix) { inherit self; };
 
       formatter = define (pkgs: pkgs.nixfmt-rfc-style);
     };
