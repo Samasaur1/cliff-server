@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/gob"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -27,6 +28,12 @@ var (
 	bundleID = flag.String("bundle-id", os.Getenv("CLIFF_APP_BUNDLE_ID"), "Bundle ID of the app receiving notifications")
 	development = flag.Bool("development", false, "Whether to send APNs notifications to the dev environment")
 )
+
+type SendJsonBody struct {
+	Title string `json:"title"`
+	Subtitle string `json:"subtitle"`
+	Body string `json:"body"`
+}
 
 func main() {
 	flag.Parse()
@@ -166,6 +173,50 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("POST /register", func(w http.ResponseWriter, r *http.Request) {
+		// Register this device with this Tailscale user
+		who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		log.Printf("Registering device %s for user %s", who.Node.DisplayName(false), who.UserProfile.LoginName)
+
+		bytes, err := io.ReadAll(io.Reader(r.Body))
+		if err != nil {
+			log.Printf("Unable to extract APNs token from request body")
+			http.Error(w, err.Error(), 400)
+		}
+		apnsToken := string(bytes)
+
+		log.Printf("APNs token: '%s'", apnsToken)
+
+		if _, ok := devices[who.UserProfile.ID]; !ok {
+			// First device for this user
+			devices[who.UserProfile.ID] = UserData{
+				UsernameAtRegistration: who.UserProfile.LoginName,
+				Devices: map[tailcfg.StableNodeID]DeviceData{
+					who.Node.StableID: DeviceData{
+						NodeNameAtRegistration: who.Node.DisplayName(false),
+						ApnsToken:              apnsToken,
+					},
+				},
+			}
+		} else {
+			// would like to do this but i would need to replace the whole struct. not worth it
+			// devices[who.UserProfile.ID].usernameAtRegistration = who.UserProfile.LoginName
+			devices[who.UserProfile.ID].Devices[who.Node.StableID] = DeviceData{
+				NodeNameAtRegistration: who.Node.DisplayName(false),
+				ApnsToken:              apnsToken,
+			}
+		}
+	})
+
+	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	})
+
 	mux.HandleFunc("GET /send", func(w http.ResponseWriter, r *http.Request) {
 		// Send notification
 		who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
@@ -226,46 +277,51 @@ func main() {
 		return
 	})
 
-	mux.HandleFunc("POST /register", func(w http.ResponseWriter, r *http.Request) {
-		// Register this device with this Tailscale user
+	mux.HandleFunc("POST /sendJSON", func(w http.ResponseWriter, r *http.Request) {
+		// Send notification to APNs
 		who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		log.Printf("Registering device %s for user %s", who.Node.DisplayName(false), who.UserProfile.LoginName)
+		log.Printf("Request to send notification with JSON from user %s", who.UserProfile.LoginName)
 
-		bytes, err := io.ReadAll(io.Reader(r.Body))
+		var obj SendJsonBody
+		err = json.NewDecoder(r.Body).Decode(&obj)
 		if err != nil {
-			log.Printf("Unable to extract APNs token from request body")
+			log.Printf("..invalid JSON")
 			http.Error(w, err.Error(), 400)
+			return
 		}
-		apnsToken := string(bytes)
 
-		log.Printf("APNs token: '%s'", apnsToken)
+		payload := payload.NewPayload()
 
-		if _, ok := devices[who.UserProfile.ID]; !ok {
-			// First device for this user
-			devices[who.UserProfile.ID] = UserData{
-				UsernameAtRegistration: who.UserProfile.LoginName,
-				Devices: map[tailcfg.StableNodeID]DeviceData{
-					who.Node.StableID: DeviceData{
-						NodeNameAtRegistration: who.Node.DisplayName(false),
-						ApnsToken:              apnsToken,
-					},
-				},
-			}
-		} else {
-			// would like to do this but i would need to replace the whole struct. not worth it
-			// devices[who.UserProfile.ID].usernameAtRegistration = who.UserProfile.LoginName
-			devices[who.UserProfile.ID].Devices[who.Node.StableID] = DeviceData{
-				NodeNameAtRegistration: who.Node.DisplayName(false),
-				ApnsToken:              apnsToken,
-			}
+		hasValue := false
+
+		if obj.Title != "" {
+			payload.AlertTitle(obj.Title)
+			hasValue = true
 		}
+		if obj.Subtitle != "" {
+			payload.AlertSubtitle(obj.Subtitle)
+			hasValue = true
+		}
+		if obj.Body != "" {
+			payload.AlertBody(obj.Body)
+			hasValue = true
+		}
+
+		if !hasValue {
+			// This notification would have no content
+			log.Printf("..notification has none of: title, subtitle, body")
+			http.Error(w, "Notification must have content", 400)
+			return
+		}
+
+		sendNotification(w, who.UserProfile.ID, payload)
 	})
 
-	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/sendJSON", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	})
