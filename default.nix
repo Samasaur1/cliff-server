@@ -1,4 +1,4 @@
-{ lib, buildGoModule }:
+{ buildGoModule }:
 
 buildGoModule {
   pname = "cliff";
@@ -7,4 +7,6 @@ buildGoModule {
   src = ./.;
 
   vendorHash = "sha256-39B/CMwCGDJKsnm2GoCNpQRguST8kp43fv0cl3UFzi8=";
+
+  meta.mainProgram = "cliff";
 }
