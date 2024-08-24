@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/gob"
 	"encoding/json"
 	"flag"
@@ -18,22 +19,19 @@ import (
 	"github.com/sideshow/apns2/token"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
+
+	firebase "firebase.google.com/go"
+	"firebase.google.com/go/messaging"
 )
 
 var (
-	hostname = flag.String("hostname", "cliff", "The hostname to use on the tailnet")
-	apnsKey  = flag.String("apns-key", os.Getenv("CLIFF_APNS_KEY_PATH"), "Path to the APNs token signing key")
-	keyID    = flag.String("key-id", os.Getenv("CLIFF_APNS_KEY_ID"), "ID of the APNs token signing key")
-	teamID   = flag.String("team-id", os.Getenv("CLIFF_APNS_TEAM_ID"), "ID of the team signing the app")
-	bundleID = flag.String("bundle-id", os.Getenv("CLIFF_APP_BUNDLE_ID"), "Bundle ID of the app receiving notifications")
+	hostname    = flag.String("hostname", "cliff", "The hostname to use on the tailnet")
+	apnsKey     = flag.String("apns-key", os.Getenv("CLIFF_APNS_KEY_PATH"), "Path to the APNs token signing key")
+	keyID       = flag.String("key-id", os.Getenv("CLIFF_APNS_KEY_ID"), "ID of the APNs token signing key")
+	teamID      = flag.String("team-id", os.Getenv("CLIFF_APNS_TEAM_ID"), "ID of the team signing the app")
+	bundleID    = flag.String("bundle-id", os.Getenv("CLIFF_APP_BUNDLE_ID"), "Bundle ID of the app receiving notifications")
 	development = flag.Bool("development", false, "Whether to send APNs notifications to the dev environment")
 )
-
-type SendJsonBody struct {
-	Title string `json:"title"`
-	Subtitle string `json:"subtitle"`
-	Body string `json:"body"`
-}
 
 func main() {
 	flag.Parse()
@@ -68,11 +66,20 @@ func main() {
 		KeyID:   *keyID,
 		TeamID:  *teamID,
 	}
-	client := apns2.NewTokenClient(token)
+	apnsClient := apns2.NewTokenClient(token)
 	if *development {
-		client.Development() // default for now, but setting in case the default changes
+		apnsClient.Development() // default for now, but setting in case the default changes
 	} else {
-		client.Production()
+		apnsClient.Production()
+	}
+
+	app, err := firebase.NewApp(context.Background(), nil)
+	if err != nil {
+		log.Fatal("Unable to create Firebase app:", err)
+	}
+	fcmClient, err := app.Messaging(context.Background())
+	if err != nil {
+		log.Fatal("Unable to create FCM client")
 	}
 
 	// MARK: - Tailscale setup
@@ -100,9 +107,14 @@ func main() {
 		NodeNameAtRegistration string
 		ApnsToken              string
 	}
+	type FcmDeviceData struct {
+		NodeNameAtRegistration string
+		FcmToken               string
+	}
 	type UserData struct {
 		UsernameAtRegistration string
 		Devices                map[tailcfg.StableNodeID]DeviceData
+		FcmDevices         map[tailcfg.StableNodeID]FcmDeviceData
 	}
 	var devices map[tailcfg.UserID]UserData
 
@@ -123,8 +135,18 @@ func main() {
 	for _, userData := range devices {
 		log.Printf("Loaded user %s", userData.UsernameAtRegistration)
 
+		// These nil checks don't appear to work. Whatever
+		if userData.Devices == nil {
+			userData.Devices = map[tailcfg.StableNodeID]DeviceData{}
+		}
 		for _, deviceData := range userData.Devices {
 			log.Printf("..loaded device %s for user %s", deviceData.NodeNameAtRegistration, userData.UsernameAtRegistration)
+		}
+		if userData.FcmDevices == nil {
+			userData.FcmDevices = map[tailcfg.StableNodeID]FcmDeviceData{}
+		}
+		for _, fcmDeviceData := range userData.FcmDevices {
+			log.Printf("..loaded FCM device %s for user %s", fcmDeviceData.NodeNameAtRegistration, userData.UsernameAtRegistration)
 		}
 	}
 
@@ -157,8 +179,8 @@ func main() {
 				Payload:     p.Sound("default").InterruptionLevel(payload.InterruptionLevelTimeSensitive),
 			}
 
-			log.Printf("..sending notification to %s", deviceData.NodeNameAtRegistration)
-			res, err := client.Push(notification)
+			log.Printf("..sending APNS notification to %s", deviceData.NodeNameAtRegistration)
+			res, err := apnsClient.Push(notification)
 			if err != nil {
 				http.Error(w, err.Error(), 500)
 				log.Printf("....unrecoverable error: %s", err.Error())
@@ -167,6 +189,26 @@ func main() {
 			if !res.Sent() {
 				log.Printf("....unable to send notification because %s", res.Reason)
 				// TODO: return error code if all notifications fail?
+			}
+		}
+		for _, fcmDeviceData := range devices[uid].FcmDevices {
+			log.Printf("..sending FCM notification to %s", fcmDeviceData.NodeNameAtRegistration)
+
+			message := &messaging.Message{
+				Notification: &messaging.Notification{
+					Title: "Hello world!",
+					Body: "Hello world hello world",
+				},
+				Android: &messaging.AndroidConfig{
+					Priority: "high",
+				},
+				Token: fcmDeviceData.FcmToken,
+			}
+			_, err := fcmClient.Send(context.Background(), message)
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				log.Printf("....error: %s", err.Error())
+				return
 			}
 		}
 	}
@@ -201,13 +243,26 @@ func main() {
 						ApnsToken:              apnsToken,
 					},
 				},
+				FcmDevices: map[tailcfg.StableNodeID]FcmDeviceData{},
 			}
 		} else {
-			// would like to do this but i would need to replace the whole struct. not worth it
-			// devices[who.UserProfile.ID].usernameAtRegistration = who.UserProfile.LoginName
-			devices[who.UserProfile.ID].Devices[who.Node.StableID] = DeviceData{
-				NodeNameAtRegistration: who.Node.DisplayName(false),
-				ApnsToken:              apnsToken,
+			if devices[who.UserProfile.ID].Devices == nil {
+				devs := map[tailcfg.StableNodeID]DeviceData{
+					who.Node.StableID: DeviceData{
+						NodeNameAtRegistration: who.Node.DisplayName(false),
+						ApnsToken:              apnsToken,
+					},
+				}
+				devices[who.UserProfile.ID] = UserData{
+					UsernameAtRegistration: who.UserProfile.LoginName,
+					Devices:                devs,
+					FcmDevices:         devices[who.UserProfile.ID].FcmDevices,
+				}
+			} else {
+				devices[who.UserProfile.ID].Devices[who.Node.StableID] = DeviceData{
+					NodeNameAtRegistration: who.Node.DisplayName(false),
+					ApnsToken:              apnsToken,
+				}
 			}
 		}
 	})
@@ -215,6 +270,58 @@ func main() {
 	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
+	})
+
+	mux.HandleFunc("/registerFCM", func(w http.ResponseWriter, r *http.Request) {
+		// Register this device with this Tailscale user
+		who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		log.Printf("Registering FCM device %s for user %s", who.Node.DisplayName(false), who.UserProfile.LoginName)
+
+		bytes, err := io.ReadAll(io.Reader(r.Body))
+		if err != nil {
+			log.Printf("Unable to extract FCM token from request body")
+			http.Error(w, err.Error(), 400)
+		}
+		fcmToken := string(bytes)
+
+		log.Printf("FCM token: '%s'", fcmToken)
+
+		if _, ok := devices[who.UserProfile.ID]; !ok {
+			// First device for this user
+			devices[who.UserProfile.ID] = UserData{
+				UsernameAtRegistration: who.UserProfile.LoginName,
+				Devices:                map[tailcfg.StableNodeID]DeviceData{},
+				FcmDevices: map[tailcfg.StableNodeID]FcmDeviceData{
+					who.Node.StableID: FcmDeviceData{
+						NodeNameAtRegistration: who.Node.DisplayName(false),
+						FcmToken:               fcmToken,
+					},
+				},
+			}
+		} else {
+			if devices[who.UserProfile.ID].FcmDevices == nil {
+				devs := map[tailcfg.StableNodeID]FcmDeviceData{
+					who.Node.StableID: FcmDeviceData{
+						NodeNameAtRegistration: who.Node.DisplayName(false),
+						FcmToken:               fcmToken,
+					},
+				}
+				devices[who.UserProfile.ID] = UserData{
+					UsernameAtRegistration: who.UserProfile.LoginName,
+					Devices:                devices[who.UserProfile.ID].Devices,
+					FcmDevices:         devs,
+				}
+			} else {
+				devices[who.UserProfile.ID].FcmDevices[who.Node.StableID] = FcmDeviceData{
+					NodeNameAtRegistration: who.Node.DisplayName(false),
+					FcmToken:               fcmToken,
+				}
+			}
+		}
 	})
 
 	mux.HandleFunc("GET /send", func(w http.ResponseWriter, r *http.Request) {
@@ -276,6 +383,12 @@ func main() {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	})
+
+	type SendJsonBody struct {
+		Title    string `json:"title"`
+		Subtitle string `json:"subtitle"`
+		Body     string `json:"body"`
+	}
 
 	mux.HandleFunc("POST /sendJSON", func(w http.ResponseWriter, r *http.Request) {
 		// Send notification to APNs

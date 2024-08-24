@@ -31,6 +31,19 @@ in
       '';
     };
 
+    fcmKeyPath = lib.mkOption {
+      type = with lib.types; nullOr path;
+      default = null;
+      example = "/var/lib/cliff/firebase-adminsdk.json";
+      description = ''
+        The path to the FCM service account credentials
+
+        You must either provide a value for this option
+        or set the `GOOGLE_APPLICATION_CREDENTIALS` environment
+        variable in the environment file.
+      '';
+    };
+
     development = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -57,7 +70,9 @@ in
         - {env}`CLIFF_APP_BUNDLE_ID`
 
         Also, if you do not set the `apnsKeyPath` option, you must set the
-        {env}`CLIFF_APNS_KEY_PATH` environment variable as well.
+        {env}`CLIFF_APNS_KEY_PATH` environment variable as well. The same is
+        true for the `fcmKeyPath` option and the {env}`GOOGLE_APPLICATION_CREDENTIALS`
+        environment variable.
       '';
     };
 
@@ -105,6 +120,7 @@ in
         StateDirectory = "cliff";
         ExecStart = "${lib.getExe cfg.package} --hostname ${cfg.hostname} ${lib.optionalString (cfg.apnsKeyPath != null) "--apns-key ${cfg.apnsKeyPath}"} ${lib.optionalString cfg.development "--development"}";
         EnvironmentFile = [ cfg.environmentFile ];
+        Environment.GOOGLE_APPLICATION_CREDENTIALS = lib.mkIf (cfg.fcmKeyPath != null) cfg.fcmKeyPath;
       };
     };
   };
