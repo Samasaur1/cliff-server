@@ -376,10 +376,15 @@ func main() {
 			return
 		}
 
-		nc := NotificationContent{
-			Title:    r.Form["title"][0],
-			Subtitle: r.Form["subtitle"][0],
-			Body:     r.Form["body"][0],
+		nc := NotificationContent{}
+		if len(r.Form["title"]) > 0 {
+			nc.Title = r.Form["title"][0]
+		}
+		if len(r.Form["subtitle"]) > 0 {
+			nc.Subtitle = r.Form["subtitle"][0]
+		}
+		if len(r.Form["body"]) > 0 {
+			nc.Body = r.Form["body"][0]
 		}
 
 		if nc.Title == "" && nc.Body == "" {
