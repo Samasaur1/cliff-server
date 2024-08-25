@@ -54,7 +54,7 @@ func main() {
 	}
 
 	// MARK: - APNs client setup
-	log.Printf("[1/5] Creating APNs client")
+	log.Printf("[1/6] Creating APNs client")
 
 	authKey, err := token.AuthKeyFromFile(*apnsKey)
 	if err != nil {
@@ -73,6 +73,8 @@ func main() {
 		apnsClient.Production()
 	}
 
+	log.Printf("[2/6] Creating FCM client")
+
 	app, err := firebase.NewApp(context.Background(), nil)
 	if err != nil {
 		log.Fatal("Unable to create Firebase app:", err)
@@ -83,7 +85,7 @@ func main() {
 	}
 
 	// MARK: - Tailscale setup
-	log.Printf("[2/5] Connecting to Tailscale")
+	log.Printf("[3/6] Connecting to Tailscale")
 
 	s := new(tsnet.Server)
 	s.Hostname = *hostname
@@ -101,7 +103,7 @@ func main() {
 	}
 
 	// MARK: - device data setup
-	log.Printf("[3/5] Loading registered devices")
+	log.Printf("[4/6] Loading registered devices")
 
 	type DeviceData struct {
 		NodeNameAtRegistration string
@@ -114,7 +116,7 @@ func main() {
 	type UserData struct {
 		UsernameAtRegistration string
 		Devices                map[tailcfg.StableNodeID]DeviceData
-		FcmDevices         map[tailcfg.StableNodeID]FcmDeviceData
+		FcmDevices             map[tailcfg.StableNodeID]FcmDeviceData
 	}
 	var devices map[tailcfg.UserID]UserData
 
@@ -169,14 +171,36 @@ func main() {
 	}()
 
 	// MARK: - route setup
-	log.Printf("[4/5] Creating routes")
+	log.Printf("[5/6] Creating routes")
 
-	sendNotification := func(w http.ResponseWriter, uid tailcfg.UserID, p *payload.Payload) {
+	type NotificationContent struct {
+		Title    string `json:"title"`
+		Subtitle string `json:"subtitle"`
+		Body     string `json:"body"`
+	}
+
+	sendNotification := func(w http.ResponseWriter, uid tailcfg.UserID, nc NotificationContent) {
+		apnsPayload := payload.NewPayload()
+		fcmNotification := messaging.Notification{}
+		if nc.Title != "" {
+			apnsPayload.AlertTitle(nc.Title)
+			fcmNotification.Title = nc.Title
+		}
+		if nc.Subtitle != "" {
+			apnsPayload.AlertSubtitle(nc.Subtitle)
+		}
+		if nc.Body != "" {
+			apnsPayload.AlertBody(nc.Body)
+			fcmNotification.Body = nc.Body
+		}
+		apnsPayload.Sound("default").InterruptionLevel(payload.InterruptionLevelTimeSensitive)
+
+		// Send to all APNs devices
 		for _, deviceData := range devices[uid].Devices {
 			notification := &apns2.Notification{
 				DeviceToken: deviceData.ApnsToken,
 				Topic:       *bundleID,
-				Payload:     p.Sound("default").InterruptionLevel(payload.InterruptionLevelTimeSensitive),
+				Payload:     apnsPayload,
 			}
 
 			log.Printf("..sending APNS notification to %s", deviceData.NodeNameAtRegistration)
@@ -191,14 +215,12 @@ func main() {
 				// TODO: return error code if all notifications fail?
 			}
 		}
+		// Send to all FCM devices
 		for _, fcmDeviceData := range devices[uid].FcmDevices {
 			log.Printf("..sending FCM notification to %s", fcmDeviceData.NodeNameAtRegistration)
 
 			message := &messaging.Message{
-				Notification: &messaging.Notification{
-					Title: "Hello world!",
-					Body: "Hello world hello world",
-				},
+				Notification: &fcmNotification,
 				Android: &messaging.AndroidConfig{
 					Priority: "high",
 				},
@@ -256,7 +278,7 @@ func main() {
 				devices[who.UserProfile.ID] = UserData{
 					UsernameAtRegistration: who.UserProfile.LoginName,
 					Devices:                devs,
-					FcmDevices:         devices[who.UserProfile.ID].FcmDevices,
+					FcmDevices:             devices[who.UserProfile.ID].FcmDevices,
 				}
 			} else {
 				devices[who.UserProfile.ID].Devices[who.Node.StableID] = DeviceData{
@@ -313,7 +335,7 @@ func main() {
 				devices[who.UserProfile.ID] = UserData{
 					UsernameAtRegistration: who.UserProfile.LoginName,
 					Devices:                devices[who.UserProfile.ID].Devices,
-					FcmDevices:         devs,
+					FcmDevices:             devs,
 				}
 			} else {
 				devices[who.UserProfile.ID].FcmDevices[who.Node.StableID] = FcmDeviceData{
@@ -333,8 +355,10 @@ func main() {
 		}
 		log.Printf("Request to send simple notification from user %s", who.UserProfile.LoginName)
 
-		payload := payload.NewPayload().AlertBody(fmt.Sprintf("Notification triggered by %s", who.Node.DisplayName(false)))
-		sendNotification(w, who.UserProfile.ID, payload)
+		nc := NotificationContent{
+			Body: fmt.Sprintf("Notification triggered by %s", who.Node.DisplayName(false)),
+		}
+		sendNotification(w, who.UserProfile.ID, nc)
 	})
 
 	mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *http.Request) {
@@ -352,43 +376,26 @@ func main() {
 			return
 		}
 
-		payload := payload.NewPayload()
-
-		hasValue := false
-
-		if len(r.Form["title"]) > 0 {
-			payload.AlertTitle(r.Form["title"][0])
-			hasValue = true
-		}
-		if len(r.Form["subtitle"]) > 0 {
-			payload.AlertSubtitle(r.Form["subtitle"][0])
-			hasValue = true
-		}
-		if len(r.Form["body"]) > 0 {
-			payload.AlertBody(r.Form["body"][0])
-			hasValue = true
+		nc := NotificationContent{
+			Title:    r.Form["title"][0],
+			Subtitle: r.Form["subtitle"][0],
+			Body:     r.Form["body"][0],
 		}
 
-		if !hasValue {
+		if nc.Title == "" && nc.Body == "" {
 			// This notification would have no content
-			log.Printf("..notification has none of: title, subtitle, body")
+			log.Printf("..notification has none of: title, body")
 			http.Error(w, "Notification must have content", 400)
 			return
 		}
 
-		sendNotification(w, who.UserProfile.ID, payload)
+		sendNotification(w, who.UserProfile.ID, nc)
 	})
 
 	mux.HandleFunc("/send", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	})
-
-	type SendJsonBody struct {
-		Title    string `json:"title"`
-		Subtitle string `json:"subtitle"`
-		Body     string `json:"body"`
-	}
 
 	mux.HandleFunc("POST /sendJSON", func(w http.ResponseWriter, r *http.Request) {
 		// Send notification to APNs
@@ -399,39 +406,22 @@ func main() {
 		}
 		log.Printf("Request to send notification with JSON from user %s", who.UserProfile.LoginName)
 
-		var obj SendJsonBody
-		err = json.NewDecoder(r.Body).Decode(&obj)
+		var nc NotificationContent
+		err = json.NewDecoder(r.Body).Decode(&nc)
 		if err != nil {
 			log.Printf("..invalid JSON")
 			http.Error(w, err.Error(), 400)
 			return
 		}
 
-		payload := payload.NewPayload()
-
-		hasValue := false
-
-		if obj.Title != "" {
-			payload.AlertTitle(obj.Title)
-			hasValue = true
-		}
-		if obj.Subtitle != "" {
-			payload.AlertSubtitle(obj.Subtitle)
-			hasValue = true
-		}
-		if obj.Body != "" {
-			payload.AlertBody(obj.Body)
-			hasValue = true
-		}
-
-		if !hasValue {
+		if nc.Title == "" && nc.Body == "" {
 			// This notification would have no content
-			log.Printf("..notification has none of: title, subtitle, body")
+			log.Printf("..notification has none of: title, body")
 			http.Error(w, "Notification must have content", 400)
 			return
 		}
 
-		sendNotification(w, who.UserProfile.ID, payload)
+		sendNotification(w, who.UserProfile.ID, nc)
 	})
 
 	mux.HandleFunc("/sendJSON", func(w http.ResponseWriter, r *http.Request) {
@@ -443,7 +433,7 @@ func main() {
 	// https://stackoverflow.com/questions/34549453/how-to-sync-push-notifications-across-multiple-ios-devices
 
 	// MARK: - run
-	log.Printf("[5/5] Launching server")
+	log.Printf("[6/6] Launching server")
 
 	log.Fatal(http.Serve(listener, mux))
 }
