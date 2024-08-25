@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -353,10 +354,40 @@ func main() {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		log.Printf("Request to send simple notification from user %s", who.UserProfile.LoginName)
 
-		nc := NotificationContent{
-			Body: fmt.Sprintf("Notification triggered by %s", who.Node.DisplayName(false)),
+		if r.URL.String() == "/send" {
+			log.Printf("Request to send simple notification from user %s", who.UserProfile.LoginName)
+
+			nc := NotificationContent{
+				Body: fmt.Sprintf("Notification triggered by %s", who.Node.DisplayName(false)),
+			}
+			sendNotification(w, who.UserProfile.ID, nc)
+			return
+		}
+		log.Printf("Request to send GET notification with data from user %s", who.UserProfile.LoginName)
+
+		params, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+
+		nc := NotificationContent{}
+		if len(params["title"]) > 0 {
+			nc.Title = params["title"][0]
+		}
+		if len(params["subtitle"]) > 0 {
+			nc.Subtitle = params["subtitle"][0]
+		}
+		if len(params["body"]) > 0 {
+			nc.Body = params["body"][0]
+		}
+
+		if nc.Title == "" && nc.Body == "" {
+			// This notification would have no content
+			log.Printf("..notification has none of: title, body")
+			http.Error(w, "Notification must have content", 400)
+			return
 		}
 		sendNotification(w, who.UserProfile.ID, nc)
 	})
