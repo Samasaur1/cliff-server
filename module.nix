@@ -111,6 +111,8 @@ in
       description = "cliff system service";
       wantedBy = [ "multi-user.target" ];
 
+      environment.GOOGLE_APPLICATION_CREDENTIALS = lib.mkIf (cfg.fcmKeyPath != null) cfg.fcmKeyPath;
+
       serviceConfig = {
         User = cfg.user;
         Group = cfg.group;
@@ -120,7 +122,6 @@ in
         StateDirectory = "cliff";
         ExecStart = "${lib.getExe cfg.package} --hostname ${cfg.hostname} ${lib.optionalString (cfg.apnsKeyPath != null) "--apns-key ${cfg.apnsKeyPath}"} ${lib.optionalString cfg.development "--development"}";
         EnvironmentFile = [ cfg.environmentFile ];
-        Environment.GOOGLE_APPLICATION_CREDENTIALS = lib.mkIf (cfg.fcmKeyPath != null) cfg.fcmKeyPath;
       };
     };
   };
