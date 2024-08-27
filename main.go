@@ -92,11 +92,16 @@ func main() {
 	s.Hostname = *hostname
 	defer s.Close()
 
-	listener, err := s.Listen("tcp", ":80")
+	httpListener, err := s.Listen("tcp", ":80")
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer listener.Close()
+	defer httpListener.Close()
+	httpsListener, err := s.ListenTLS("tcp", ":443")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer httpsListener.Close()
 
 	lc, err := s.LocalClient()
 	if err != nil {
@@ -471,5 +476,8 @@ func main() {
 	// MARK: - run
 	log.Printf("[6/6] Launching server")
 
-	log.Fatal(http.Serve(listener, mux))
+	go func() {
+		log.Printf("HTTP listener exited with error: %s", http.Serve(httpListener, mux).Error())
+	}()
+	log.Fatalf("HTTPS listener exited with error: %s", http.Serve(httpsListener, mux).Error())
 }
