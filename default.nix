@@ -6,7 +6,7 @@ buildGoModule {
 
   src = ./.;
 
-  vendorHash = "sha256-IHJYFho0y7VJ0DJ6U/wlwy2q1/DbI/t5a6jkdvP0kxE=";
+  vendorHash = "sha256-GjSrYT+PMPUn23VaXtd+DPS+zAcIQDCvNcVpL8rcN6U=";
 
   meta.mainProgram = "cliff";
 }
