@@ -2,7 +2,7 @@
   description = "Listen for HTTP requests over Tailscale and send APNs pushes";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs?rev=ac35b104800bff9028425fec3b6e8a41de2bbfff";
+    nixpkgs.url = "github:NixOS/nixpkgs";
   };
 
   outputs = { self, nixpkgs, ... }:
