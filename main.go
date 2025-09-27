@@ -172,22 +172,27 @@ func main() {
 		}
 	}
 
+	saveChannel := make(chan int)
+	go func() {
+		for _ = range saveChannel {
+			file, err := os.Create("devices.gob")
+			if err != nil {
+				log.Printf("Unable to create file! err: %s", err.Error())
+			}
+
+			encoder := gob.NewEncoder(file)
+			encoder.Encode(devices)
+
+			file.Close()
+		}
+
+		os.Exit(0)
+	}()
 	interruptChannel := make(chan os.Signal, 1)
 	signal.Notify(interruptChannel, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-interruptChannel
-
-		file, err := os.Create("devices.gob")
-		if err != nil {
-			log.Printf("Unable to create file! err: %s", err.Error())
-		}
-
-		encoder := gob.NewEncoder(file)
-		encoder.Encode(devices)
-
-		file.Close()
-
-		os.Exit(0)
+		close(saveChannel)
 	}()
 
 	// MARK: - route setup
