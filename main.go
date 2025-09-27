@@ -34,6 +34,20 @@ var (
 	development = flag.Bool("development", false, "Whether to send APNs notifications to the dev environment")
 )
 
+// Lifted from https://github.com/firebase/firebase-admin-go/blob/v3.13.0/internal/internal.go
+// If they didn't want me to do this they should have used a language with real error handling
+type FirebaseError struct {
+	Code   string
+	String string
+}
+func (fe *FirebaseError) Error() string {
+	return fe.String
+}
+func HasErrorCode(err error, code string) bool {
+	fe, ok := err.(*FirebaseError)
+	return ok && fe.Code == code
+}
+
 func main() {
 	flag.Parse()
 
@@ -51,7 +65,7 @@ func main() {
 	}
 	if *bundleID == "" {
 		flag.PrintDefaults()
-		log.Fatal("Must provide the bundle ID of the app recieving notifications (can use the CLIFF_APP_BUNDLE_ID env var)")
+		log.Fatal("Must provide the bundle ID of the app receiving notifications (can use the CLIFF_APP_BUNDLE_ID env var)")
 	}
 
 	// MARK: - APNs client setup
@@ -222,7 +236,7 @@ func main() {
 			}
 		}
 		// Send to all FCM devices
-		for _, fcmDeviceData := range devices[uid].FcmDevices {
+		for fcmDeviceKey, fcmDeviceData := range devices[uid].FcmDevices {
 			log.Printf("..sending FCM notification to %s", fcmDeviceData.NodeNameAtRegistration)
 
 			message := &messaging.Message{
@@ -234,8 +248,13 @@ func main() {
 			}
 			_, err := fcmClient.Send(context.Background(), message)
 			if err != nil {
-				http.Error(w, err.Error(), 500)
 				log.Printf("....error: %s", err.Error())
+				if HasErrorCode(err, "registration-token-not-registered") {
+					log.Printf("......parsed that as device not/no longer registered; removing from user's list of devices")
+					delete(devices[uid].FcmDevices, fcmDeviceKey)
+					continue
+				}
+				http.Error(w, err.Error(), 500)
 				return
 			}
 		}
