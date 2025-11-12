@@ -34,6 +34,20 @@ var (
 	development = flag.Bool("development", false, "Whether to send APNs notifications to the dev environment")
 )
 
+// Lifted from https://github.com/firebase/firebase-admin-go/blob/v3.13.0/internal/internal.go
+// If they didn't want me to do this they should have used a language with real error handling
+type FirebaseError struct {
+	Code   string
+	String string
+}
+func (fe *FirebaseError) Error() string {
+	return fe.String
+}
+func HasErrorCode(err error, code string) bool {
+	fe, ok := err.(*FirebaseError)
+	return ok && fe.Code == code
+}
+
 func main() {
 	flag.Parse()
 
@@ -51,7 +65,7 @@ func main() {
 	}
 	if *bundleID == "" {
 		flag.PrintDefaults()
-		log.Fatal("Must provide the bundle ID of the app recieving notifications (can use the CLIFF_APP_BUNDLE_ID env var)")
+		log.Fatal("Must provide the bundle ID of the app receiving notifications (can use the CLIFF_APP_BUNDLE_ID env var)")
 	}
 
 	// MARK: - APNs client setup
@@ -158,22 +172,29 @@ func main() {
 		}
 	}
 
+	saveChannel := make(chan int)
+	go func() {
+		for _ = range saveChannel {
+			file, err := os.Create("devices.gob")
+			if err != nil {
+				log.Printf("Unable to create file! err: %s", err.Error())
+			}
+
+			encoder := gob.NewEncoder(file)
+			encoder.Encode(devices)
+			log.Printf("Saved devices to file")
+
+			file.Close()
+		}
+
+		os.Exit(0)
+	}()
 	interruptChannel := make(chan os.Signal, 1)
 	signal.Notify(interruptChannel, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-interruptChannel
-
-		file, err := os.Create("devices.gob")
-		if err != nil {
-			log.Printf("Unable to create file! err: %s", err.Error())
-		}
-
-		encoder := gob.NewEncoder(file)
-		encoder.Encode(devices)
-
-		file.Close()
-
-		os.Exit(0)
+		log.Printf("Caught SIGINT")
+		close(saveChannel)
 	}()
 
 	// MARK: - route setup
@@ -222,7 +243,7 @@ func main() {
 			}
 		}
 		// Send to all FCM devices
-		for _, fcmDeviceData := range devices[uid].FcmDevices {
+		for fcmDeviceKey, fcmDeviceData := range devices[uid].FcmDevices {
 			log.Printf("..sending FCM notification to %s", fcmDeviceData.NodeNameAtRegistration)
 
 			message := &messaging.Message{
@@ -234,8 +255,14 @@ func main() {
 			}
 			_, err := fcmClient.Send(context.Background(), message)
 			if err != nil {
-				http.Error(w, err.Error(), 500)
 				log.Printf("....error: %s", err.Error())
+				if HasErrorCode(err, "registration-token-not-registered") {
+					log.Printf("......parsed that as device not/no longer registered; removing from user's list of devices")
+					delete(devices[uid].FcmDevices, fcmDeviceKey)
+					saveChannel <- 0
+					continue
+				}
+				http.Error(w, err.Error(), 500)
 				return
 			}
 		}
@@ -293,6 +320,7 @@ func main() {
 				}
 			}
 		}
+		saveChannel <- 0
 	})
 
 	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
@@ -350,6 +378,7 @@ func main() {
 				}
 			}
 		}
+		saveChannel <- 0
 	})
 
 	mux.HandleFunc("GET /send", func(w http.ResponseWriter, r *http.Request) {
@@ -468,6 +497,10 @@ func main() {
 	mux.HandleFunc("/sendJSON", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
+	})
+
+	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "0.6.4")
 	})
 
 	// TODO: Potential future endpoints to eliminate notifications when viewed on other devices
