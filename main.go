@@ -499,6 +499,10 @@ func main() {
 		return
 	})
 
+	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "0.6.4")
+	})
+
 	// TODO: Potential future endpoints to eliminate notifications when viewed on other devices
 	// https://stackoverflow.com/questions/34549453/how-to-sync-push-notifications-across-multiple-ios-devices
 
