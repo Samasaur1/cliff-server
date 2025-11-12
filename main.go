@@ -182,6 +182,7 @@ func main() {
 
 			encoder := gob.NewEncoder(file)
 			encoder.Encode(devices)
+			log.Printf("Saved devices to file")
 
 			file.Close()
 		}
@@ -192,6 +193,7 @@ func main() {
 	signal.Notify(interruptChannel, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-interruptChannel
+		log.Printf("Caught SIGINT")
 		close(saveChannel)
 	}()
 
@@ -257,6 +259,7 @@ func main() {
 				if HasErrorCode(err, "registration-token-not-registered") {
 					log.Printf("......parsed that as device not/no longer registered; removing from user's list of devices")
 					delete(devices[uid].FcmDevices, fcmDeviceKey)
+					saveChannel <- 0
 					continue
 				}
 				http.Error(w, err.Error(), 500)
@@ -317,6 +320,7 @@ func main() {
 				}
 			}
 		}
+		saveChannel <- 0
 	})
 
 	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
@@ -374,6 +378,7 @@ func main() {
 				}
 			}
 		}
+		saveChannel <- 0
 	})
 
 	mux.HandleFunc("GET /send", func(w http.ResponseWriter, r *http.Request) {
