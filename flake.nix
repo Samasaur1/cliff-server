@@ -27,7 +27,7 @@
 
       devShells = define (pkgs: {
         default = pkgs.mkShell {
-          buildInputs = [ pkgs.go ];
+          buildInputs = [ pkgs.go pkgs.gopls ];
         };
       });
 
