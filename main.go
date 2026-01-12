@@ -520,14 +520,16 @@ func main() {
 	})
 
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
-		// Since we don't care who's requesting for the purposes of the response, respond first.
-		fmt.Fprintln(w, "0.7.1")
+		version := "0.7.1"
 
 		who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
 		if err != nil {
+			http.Error(w, version, 500)
 			log.Printf("Request to /version from unknown user (should never happen)")
 			return
 		}
+
+		fmt.Fprintln(w, version)
 		log.Printf("Request to /version endpoint from user %s", who.UserProfile.LoginName)
 	})
 
