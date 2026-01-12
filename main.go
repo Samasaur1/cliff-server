@@ -520,7 +520,15 @@ func main() {
 	})
 
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		// Since we don't care who's requesting for the purposes of the response, respond first.
 		fmt.Fprintf(w, "0.7.0")
+
+		who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
+		if err != nil {
+			log.Printf("Request to /version from unknown user (should never happen)")
+			return
+		}
+		log.Printf("Request to /version endpoint from user %s", who.UserProfile.LoginName)
 	})
 
 	// TODO: Potential future endpoints to eliminate notifications when viewed on other devices
