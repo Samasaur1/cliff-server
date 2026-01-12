@@ -2,11 +2,11 @@
 
 buildGoModule {
   pname = "cliff";
-  version = "0.6.4";
+  version = "0.7.0";
 
   src = ./.;
 
-  vendorHash = "sha256-J6Y53D1RKZv2Zqu2KlMdhY+23a9uBDvrYA661vCeM0o=";
+  vendorHash = "sha256-MFrGev7KoZmEvOuLzsJ8ue906sclou5f3AvZbOVgWJg=";
 
   meta.mainProgram = "cliff";
 }

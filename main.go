@@ -516,7 +516,7 @@ func main() {
 	})
 
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "0.6.4")
+		fmt.Fprintf(w, "0.7.0")
 	})
 
 	// TODO: Potential future endpoints to eliminate notifications when viewed on other devices
