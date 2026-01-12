@@ -21,8 +21,9 @@ import (
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
 
-	firebase "firebase.google.com/go"
-	"firebase.google.com/go/messaging"
+	firebase "firebase.google.com/go/v4"
+	"firebase.google.com/go/v4/messaging"
+	"firebase.google.com/go/v4/errorutils"
 )
 
 var (
@@ -33,20 +34,6 @@ var (
 	bundleID    = flag.String("bundle-id", os.Getenv("CLIFF_APP_BUNDLE_ID"), "Bundle ID of the app receiving notifications")
 	development = flag.Bool("development", false, "Whether to send APNs notifications to the dev environment")
 )
-
-// Lifted from https://github.com/firebase/firebase-admin-go/blob/v3.13.0/internal/internal.go
-// If they didn't want me to do this they should have used a language with real error handling
-type FirebaseError struct {
-	Code   string
-	String string
-}
-func (fe *FirebaseError) Error() string {
-	return fe.String
-}
-func HasErrorCode(err error, code string) bool {
-	fe, ok := err.(*FirebaseError)
-	return ok && fe.Code == code
-}
 
 func main() {
 	flag.Parse()
@@ -274,11 +261,22 @@ func main() {
 			_, err := fcmClient.Send(context.Background(), message)
 			if err != nil {
 				log.Printf("....error: %s", err.Error())
-				if HasErrorCode(err, "registration-token-not-registered") {
-					log.Printf("......parsed that as device not/no longer registered; removing from user's list of devices")
-					delete(devices[uid].FcmDevices, fcmDeviceKey)
-					saveChannel <- 0
-					continue
+				resp := errorutils.HTTPResponse(err)
+				if resp != nil {
+					var gcpError struct {
+						Error struct {
+							Status  string `json:"status"`
+							Message string `json:"message"`
+						} `json:"error"`
+					}
+					body, _ := io.ReadAll(resp.Body)
+					json.Unmarshal(body, &gcpError)
+					if gcpError.Error.Status == "registration-token-not-registered" {
+						log.Printf("......parsed that as device not/no longer registered; removing from user's list of devices")
+						delete(devices[uid].FcmDevices, fcmDeviceKey)
+						saveChannel <- 0
+						continue
+					}
 				}
 				http.Error(w, err.Error(), 500)
 				return
