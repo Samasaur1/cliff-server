@@ -521,7 +521,7 @@ func main() {
 
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		// Since we don't care who's requesting for the purposes of the response, respond first.
-		fmt.Fprintf(w, "0.7.0")
+		fmt.Fprintf(w, "0.7.1")
 
 		who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
 		if err != nil {
