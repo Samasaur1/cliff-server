@@ -521,7 +521,7 @@ func main() {
 
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		// Since we don't care who's requesting for the purposes of the response, respond first.
-		fmt.Fprintf(w, "0.7.1")
+		fmt.Fprintln(w, "0.7.1")
 
 		who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
 		if err != nil {
@@ -541,24 +541,26 @@ func main() {
 
 		uid := who.UserProfile.ID
 
-		fmt.Fprintf(w, "Hi %s! You have the following devices registered:", who.UserProfile.LoginName)
+		fmt.Fprintf(w, "<h1>Hi %s! You have the following devices registered:</h1>\n<ul>\n", who.UserProfile.LoginName)
 
 		// APNs devices
 		for deviceId, deviceData := range devices[uid].Devices {
 			if deviceId == who.Node.StableID {
-				fmt.Fprintf(w, "- an APNs device named %s with ID %s <b>(this device)</b>", deviceData.NodeNameAtRegistration, deviceId)
+				fmt.Fprintf(w, "  <li>an APNs device named %s with ID %s <b>(this device)</b></li>\n", deviceData.NodeNameAtRegistration, deviceId)
 			} else {
-				fmt.Fprintf(w, "- an APNs device named %s with ID %s", deviceData.NodeNameAtRegistration, deviceId)
+				fmt.Fprintf(w, "  <li>an APNs device named %s with ID %s</li>\n", deviceData.NodeNameAtRegistration, deviceId)
 			}
 		}
 		// FCM devices
 		for fcmDeviceKey, fcmDeviceData := range devices[uid].FcmDevices {
 			if fcmDeviceKey == who.Node.StableID {
-				fmt.Fprintf(w, "- a FCM device named %s with ID %s <b>(this device)</b>", fcmDeviceData.NodeNameAtRegistration, fcmDeviceKey)
+				fmt.Fprintf(w, "  <li>a FCM device named %s with ID %s <b>(this device)</b></li>\n", fcmDeviceData.NodeNameAtRegistration, fcmDeviceKey)
 			} else {
-				fmt.Fprintf(w, "- a FCM device named %s with ID %s", fcmDeviceData.NodeNameAtRegistration, fcmDeviceKey)
+				fmt.Fprintf(w, "  <li>a FCM device named %s with ID %s</li>\n", fcmDeviceData.NodeNameAtRegistration, fcmDeviceKey)
 			}
 		}
+
+		fmt.Fprintf(w, "</ul>")
 	})
 	mux.HandleFunc("/devices", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
