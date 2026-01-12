@@ -531,6 +531,40 @@ func main() {
 		log.Printf("Request to /version endpoint from user %s", who.UserProfile.LoginName)
 	})
 
+	mux.HandleFunc("GET /devices", func(w http.ResponseWriter, r *http.Request) {
+		who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		log.Printf("Request to list devices from user %s", who.UserProfile.LoginName)
+
+		uid := who.UserProfile.ID
+
+		fmt.Fprintf(w, "Hi %s! You have the following devices registered:", who.UserProfile.LoginName)
+
+		// APNs devices
+		for deviceId, deviceData := range devices[uid].Devices {
+			if deviceId == who.Node.StableID {
+				fmt.Fprintf(w, "- an APNs device named %s with ID %s <b>(this device)</b>", deviceData.NodeNameAtRegistration, deviceId)
+			} else {
+				fmt.Fprintf(w, "- an APNs device named %s with ID %s", deviceData.NodeNameAtRegistration, deviceId)
+			}
+		}
+		// FCM devices
+		for fcmDeviceKey, fcmDeviceData := range devices[uid].FcmDevices {
+			if fcmDeviceKey == who.Node.StableID {
+				fmt.Fprintf(w, "- a FCM device named %s with ID %s <b>(this device)</b>", fcmDeviceData.NodeNameAtRegistration, fcmDeviceKey)
+			} else {
+				fmt.Fprintf(w, "- a FCM device named %s with ID %s", fcmDeviceData.NodeNameAtRegistration, fcmDeviceKey)
+			}
+		}
+	})
+	mux.HandleFunc("/devices", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	})
+
 	// TODO: Potential future endpoints to eliminate notifications when viewed on other devices
 	// https://stackoverflow.com/questions/34549453/how-to-sync-push-notifications-across-multiple-ios-devices
 
