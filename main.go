@@ -263,6 +263,7 @@ func main() {
 				log.Printf("....error: %s", err.Error())
 				resp := errorutils.HTTPResponse(err)
 				if resp != nil {
+					log.Printf("......extracted original HTTP response")
 					var gcpError struct {
 						Error struct {
 							Status  string `json:"status"`
@@ -271,6 +272,9 @@ func main() {
 					}
 					body, _ := io.ReadAll(resp.Body)
 					json.Unmarshal(body, &gcpError)
+					log.Printf("......unmarshaled JSON body")
+					log.Printf("........status: %s", gcpError.Error.Status)
+					log.Printf("........message: %s", gcpError.Error.Message)
 					if gcpError.Error.Status == "registration-token-not-registered" {
 						log.Printf("......parsed that as device not/no longer registered; removing from user's list of devices")
 						delete(devices[uid].FcmDevices, fcmDeviceKey)
