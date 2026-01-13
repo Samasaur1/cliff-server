@@ -520,7 +520,7 @@ func main() {
 	})
 
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
-		version := "0.7.1"
+		version := "0.7.2"
 
 		who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
 		if err != nil {
