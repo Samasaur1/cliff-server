@@ -263,7 +263,7 @@ func main() {
 				log.Printf("....error: %s", err.Error())
 				resp := errorutils.HTTPResponse(err)
 				if resp != nil {
-					log.Printf("......extracted original HTTP response")
+					// log.Printf("......extracted original HTTP response")
 					var gcpError struct {
 						Error struct {
 							Status  string `json:"status"`
@@ -272,10 +272,10 @@ func main() {
 					}
 					body, _ := io.ReadAll(resp.Body)
 					json.Unmarshal(body, &gcpError)
-					log.Printf("......unmarshaled JSON body")
-					log.Printf("........status: %s", gcpError.Error.Status)
-					log.Printf("........message: %s", gcpError.Error.Message)
-					if gcpError.Error.Status == "registration-token-not-registered" {
+					// log.Printf("......unmarshaled JSON body")
+					// log.Printf("........status: %s", gcpError.Error.Status)
+					// log.Printf("........message: %s", gcpError.Error.Message)
+					if gcpError.Error.Status == "NOT_FOUND" && gcpError.Error.Message == "NotRegistered" {
 						log.Printf("......parsed that as device not/no longer registered; removing from user's list of devices")
 						delete(devices[uid].FcmDevices, fcmDeviceKey)
 						saveChannel <- 0
@@ -520,14 +520,16 @@ func main() {
 	})
 
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
-		// Since we don't care who's requesting for the purposes of the response, respond first.
-		fmt.Fprintf(w, "0.7.1")
+		version := "0.7.2"
 
 		who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
 		if err != nil {
+			http.Error(w, version, 500)
 			log.Printf("Request to /version from unknown user (should never happen)")
 			return
 		}
+
+		fmt.Fprintln(w, version)
 		log.Printf("Request to /version endpoint from user %s", who.UserProfile.LoginName)
 	})
 
@@ -541,24 +543,26 @@ func main() {
 
 		uid := who.UserProfile.ID
 
-		fmt.Fprintf(w, "Hi %s! You have the following devices registered:", who.UserProfile.LoginName)
+		fmt.Fprintf(w, "<h1>Hi %s! You have the following devices registered:</h1>\n<ul>\n", who.UserProfile.LoginName)
 
 		// APNs devices
 		for deviceId, deviceData := range devices[uid].Devices {
 			if deviceId == who.Node.StableID {
-				fmt.Fprintf(w, "- an APNs device named %s with ID %s <b>(this device)</b>", deviceData.NodeNameAtRegistration, deviceId)
+				fmt.Fprintf(w, "  <li>an APNs device named %s with ID %s <b>(this device)</b></li>\n", deviceData.NodeNameAtRegistration, deviceId)
 			} else {
-				fmt.Fprintf(w, "- an APNs device named %s with ID %s", deviceData.NodeNameAtRegistration, deviceId)
+				fmt.Fprintf(w, "  <li>an APNs device named %s with ID %s</li>\n", deviceData.NodeNameAtRegistration, deviceId)
 			}
 		}
 		// FCM devices
 		for fcmDeviceKey, fcmDeviceData := range devices[uid].FcmDevices {
 			if fcmDeviceKey == who.Node.StableID {
-				fmt.Fprintf(w, "- a FCM device named %s with ID %s <b>(this device)</b>", fcmDeviceData.NodeNameAtRegistration, fcmDeviceKey)
+				fmt.Fprintf(w, "  <li>a FCM device named %s with ID %s <b>(this device)</b></li>\n", fcmDeviceData.NodeNameAtRegistration, fcmDeviceKey)
 			} else {
-				fmt.Fprintf(w, "- a FCM device named %s with ID %s", fcmDeviceData.NodeNameAtRegistration, fcmDeviceKey)
+				fmt.Fprintf(w, "  <li>a FCM device named %s with ID %s</li>\n", fcmDeviceData.NodeNameAtRegistration, fcmDeviceKey)
 			}
 		}
+
+		fmt.Fprintf(w, "</ul>")
 	})
 	mux.HandleFunc("/devices", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
